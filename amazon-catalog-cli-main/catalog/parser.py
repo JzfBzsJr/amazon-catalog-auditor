@@ -40,24 +40,36 @@ class CLRParser:
         """Load and parse CLR file"""
         self.file_path = clr_file_path
         self.workbook = openpyxl.load_workbook(clr_file_path, data_only=True, read_only=True)
-        
+
         # Load sheets
         self.template_sheet = self.workbook['Template']
-        
+
         # Parse structure
         self.headers = self._extract_headers()
+        self.field_ids = self._extract_field_ids()
         self.field_definitions = self._extract_field_definitions()
         
     def _extract_headers(self) -> Dict[str, int]:
-        """Extract column headers and their positions"""
+        """Extract column headers (Row 4) and their positions"""
         headers = {}
         header_row = self.template_sheet[self.ROW_COL_HEADERS]
-        
+
         for idx, cell in enumerate(header_row, start=1):
             if cell.value:
                 headers[str(cell.value).strip()] = idx
-        
+
         return headers
+
+    def _extract_field_ids(self) -> Dict[str, int]:
+        """Extract field IDs (Row 5, e.g. ::title) and their column positions"""
+        field_ids = {}
+        id_row = self.template_sheet[self.ROW_FIELD_IDS]
+
+        for idx, cell in enumerate(id_row, start=1):
+            if cell.value:
+                field_ids[str(cell.value).strip()] = idx
+
+        return field_ids
     
     def _extract_field_definitions(self) -> Dict[str, Dict]:
         """Extract field definitions from Data Definitions sheet"""
@@ -174,10 +186,13 @@ class CLRParser:
             if skip_parents and parentage and 'parent' in parentage.lower():
                 continue
             
-            # Extract all fields
+            # Extract all fields — keyed by both human-readable header (Row 4)
+            # and field ID (Row 5, e.g. ::title) so queries can use either form.
             all_fields = {}
             for header_name, col_idx in self.headers.items():
                 all_fields[header_name] = self._get_cell_value(row, col_idx)
+            for field_id, col_idx in self.field_ids.items():
+                all_fields[field_id] = self._get_cell_value(row, col_idx)
             
             # Extract bullet points
             bullets = []
