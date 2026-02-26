@@ -1,5 +1,3 @@
-// Empty string → relative paths (/api/audit, /api/queries)
-// Works on Vercel (same origin) and with `vercel dev` locally
 const API_URL = "";
 
 export interface AuditIssue {
@@ -32,7 +30,7 @@ export async function runAudit(file: File): Promise<AuditResult> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(`${API_URL}/audit`, {
+  const response = await fetch(`${API_URL}/api/audit`, {
     method: "POST",
     body: formData,
   });
@@ -53,6 +51,6 @@ export async function runAudit(file: File): Promise<AuditResult> {
 }
 
 export async function getQueries(): Promise<{ name: string; description: string }[]> {
-  const response = await fetch(`${API_URL}/queries`);
+  const response = await fetch(`${API_URL}/api/queries`);
   return response.json();
 }
