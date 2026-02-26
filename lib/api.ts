@@ -38,8 +38,15 @@ export async function runAudit(file: File): Promise<AuditResult> {
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: "Unknown error" }));
-    throw new Error(err.detail || `Server error: ${response.status}`);
+    const text = await response.text().catch(() => "");
+    let detail: string;
+    try {
+      const err = JSON.parse(text);
+      detail = err.detail || `Server error ${response.status}`;
+    } catch {
+      detail = `HTTP ${response.status}: ${text.slice(0, 300) || "(empty response)"}`;
+    }
+    throw new Error(detail);
   }
 
   return response.json();

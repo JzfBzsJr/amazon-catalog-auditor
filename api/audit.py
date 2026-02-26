@@ -50,10 +50,10 @@ def _add_cors(response):
     return response
 
 
-# Handle both /api/audit (Vercel passes full path) and / (some runtimes strip prefix)
-@app.route("/", methods=["POST", "OPTIONS"])
-@app.route("/api/audit", methods=["POST", "OPTIONS"])
-def audit():
+# Catch-all: handle whatever path Vercel passes to the WSGI app
+@app.route("/", defaults={"path": ""}, methods=["POST", "OPTIONS"])
+@app.route("/<path:path>", methods=["POST", "OPTIONS"])
+def audit(path=""):
     if request.method == "OPTIONS":
         return _add_cors(jsonify({}))
 
