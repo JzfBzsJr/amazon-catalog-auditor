@@ -1,15 +1,9 @@
-import json
-from http.server import BaseHTTPRequestHandler
+from flask import Flask, jsonify
+
+app = Flask(__name__)
 
 
-class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        body = json.dumps({"status": "ok"}).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, format, *args):
-        pass  # suppress default access log noise
+@app.route("/", methods=["GET"])
+@app.route("/api/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok"})

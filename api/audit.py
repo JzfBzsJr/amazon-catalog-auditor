@@ -2,12 +2,12 @@ import sys
 import os
 import json
 import tempfile
-import cgi
 from pathlib import Path
-from http.server import BaseHTTPRequestHandler
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "amazon-catalog-cli-main"))
+_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_root / "amazon-catalog-cli-main"))
 
+from flask import Flask, request, jsonify
 from catalog.parser import CLRParser
 from catalog.query_engine import QueryEngine
 from catalog.output import format_json
@@ -23,6 +23,8 @@ from catalog.queries import (
     NewAttributesQuery,
 )
 
+app = Flask(__name__)
+
 ALL_QUERY_CLASSES = [
     MissingAttributesQuery,
     MissingAnyAttributesQuery,
@@ -35,86 +37,53 @@ ALL_QUERY_CLASSES = [
     NewAttributesQuery,
 ]
 
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
+
+def _register_all(engine):
+    for cls in ALL_QUERY_CLASSES:
+        engine.register_query(cls())
 
 
-def _register_all(engine: QueryEngine):
-    for QueryClass in ALL_QUERY_CLASSES:
-        engine.register_query(QueryClass())
+def _add_cors(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
 
 
-def _run_audit(file_path: str) -> dict:
-    parser = CLRParser(file_path)
-    engine = QueryEngine(parser)
-    _register_all(engine)
-    results = engine.execute_all()
-    return json.loads(format_json(results))
+# Handle both /api/audit (Vercel passes full path) and / (some runtimes strip prefix)
+@app.route("/", methods=["POST", "OPTIONS"])
+@app.route("/api/audit", methods=["POST", "OPTIONS"])
+def audit():
+    if request.method == "OPTIONS":
+        return _add_cors(jsonify({}))
 
+    if "file" not in request.files:
+        return _add_cors(jsonify({"detail": "No file uploaded (field name must be 'file')"})), 400
 
-def _send_json(req: BaseHTTPRequestHandler, status: int, data: dict):
-    body = json.dumps(data).encode()
-    req.send_response(status)
-    req.send_header("Content-Type", "application/json")
-    req.send_header("Content-Length", str(len(body)))
-    req.send_header("Access-Control-Allow-Origin", "*")
-    req.end_headers()
-    req.wfile.write(body)
+    f = request.files["file"]
+    fn = (f.filename or "").lower()
 
+    if not (fn.endswith(".xlsx") or fn.endswith(".xlsm")):
+        return _add_cors(jsonify({"detail": "Only .xlsx or .xlsm files are accepted"})), 400
 
-class handler(BaseHTTPRequestHandler):
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.end_headers()
+    suffix = ".xlsm" if fn.endswith(".xlsm") else ".xlsx"
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    tmp_path = tmp.name
 
-    def do_POST(self):
-        content_type = self.headers.get("Content-Type", "")
-        content_length = int(self.headers.get("Content-Length", 0))
+    try:
+        f.save(tmp)
+        tmp.close()
 
-        if content_length > MAX_FILE_SIZE:
-            _send_json(self, 413, {"detail": "File too large (max 50 MB)"})
-            return
+        parser = CLRParser(tmp_path)
+        engine = QueryEngine(parser)
+        _register_all(engine)
+        results = engine.execute_all()
 
-        if "multipart/form-data" not in content_type:
-            _send_json(self, 400, {"detail": "Expected multipart/form-data"})
-            return
+        return _add_cors(jsonify(json.loads(format_json(results))))
 
-        # Parse multipart upload
-        form = cgi.FieldStorage(
-            fp=self.rfile,
-            headers=self.headers,
-            environ={
-                "REQUEST_METHOD": "POST",
-                "CONTENT_TYPE": content_type,
-                "CONTENT_LENGTH": str(content_length),
-            },
-        )
+    except Exception as e:
+        return _add_cors(jsonify({"detail": f"Audit failed: {e}"})), 500
 
-        file_item = form.get("file")
-        if not file_item or not file_item.filename:
-            _send_json(self, 400, {"detail": "No file uploaded (field name must be 'file')"})
-            return
-
-        filename = file_item.filename.lower()
-        if not (filename.endswith(".xlsx") or filename.endswith(".xlsm")):
-            _send_json(self, 400, {"detail": "Only .xlsx or .xlsm files are accepted"})
-            return
-
-        suffix = ".xlsm" if filename.endswith(".xlsm") else ".xlsx"
-        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-        tmp_path = tmp.name
-        try:
-            tmp.write(file_item.file.read())
-            tmp.close()
-            result = _run_audit(tmp_path)
-            _send_json(self, 200, result)
-        except Exception as e:
-            _send_json(self, 500, {"detail": f"Audit failed: {e}"})
-        finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-
-    def log_message(self, format, *args):
-        pass
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)

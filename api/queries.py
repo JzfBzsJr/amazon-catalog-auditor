@@ -1,10 +1,10 @@
 import sys
-import json
 from pathlib import Path
-from http.server import BaseHTTPRequestHandler
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "amazon-catalog-cli-main"))
+_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_root / "amazon-catalog-cli-main"))
 
+from flask import Flask, jsonify
 from catalog.query_engine import QueryEngine
 from catalog.queries import (
     MissingAttributesQuery,
@@ -17,6 +17,8 @@ from catalog.queries import (
     MissingVariationsQuery,
     NewAttributesQuery,
 )
+
+app = Flask(__name__)
 
 ALL_QUERY_CLASSES = [
     MissingAttributesQuery,
@@ -31,18 +33,10 @@ ALL_QUERY_CLASSES = [
 ]
 
 
-class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        engine = QueryEngine(None)
-        for QueryClass in ALL_QUERY_CLASSES:
-            engine.register_query(QueryClass())
-
-        body = json.dumps(engine.list_queries()).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, format, *args):
-        pass
+@app.route("/", methods=["GET"])
+@app.route("/api/queries", methods=["GET"])
+def queries():
+    engine = QueryEngine(None)
+    for cls in ALL_QUERY_CLASSES:
+        engine.register_query(cls())
+    return jsonify(engine.list_queries())
