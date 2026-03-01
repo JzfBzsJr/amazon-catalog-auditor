@@ -136,14 +136,15 @@ class CLRParser:
             if 'conditional' in definition['required'].lower()
         ]
     
-    def get_listings(self, skip_parents: bool = True, skip_examples: bool = True) -> List[Listing]:
+    def get_listings(self, skip_parents: bool = True, skip_examples: bool = True, skip_fbm_duplicates: bool = True) -> List[Listing]:
         """
         Extract all listings from CLR
-        
+
         Args:
             skip_parents: Skip parent SKUs (variations)
             skip_examples: Skip example/dummy rows
-        
+            skip_fbm_duplicates: Remove FBM/MFN rows that duplicate an FBA listing
+
         Returns:
             List of normalized Listing objects
         """
@@ -216,9 +217,40 @@ class CLRParser:
             )
             
             listings.append(listing)
-        
+
+        if skip_fbm_duplicates:
+            listings = self._filter_fbm_duplicates(listings)
+
         return listings
-    
+
+    def _filter_fbm_duplicates(self, listings: List[Listing]) -> List[Listing]:
+        """
+        Filter out FBM/MFN duplicates of FBA listings.
+        When multiple SKUs share the same title, keep the FBA version.
+        """
+        seen_names: Dict[str, str] = {}
+        filtered = []
+
+        for listing in listings:
+            item_name = listing.title.strip() if listing.title else ""
+
+            if not item_name:
+                filtered.append(listing)
+                continue
+
+            if item_name in seen_names:
+                existing_sku = seen_names[item_name]
+                if "FBA" in listing.sku.upper():
+                    filtered = [l for l in filtered if l.sku != existing_sku]
+                    filtered.append(listing)
+                    seen_names[item_name] = listing.sku
+                # else: FBM/MFN duplicate — skip it
+            else:
+                seen_names[item_name] = listing.sku
+                filtered.append(listing)
+
+        return filtered
+
     def get_product_types(self) -> List[str]:
         """Get unique product types in catalog"""
         product_types = set()

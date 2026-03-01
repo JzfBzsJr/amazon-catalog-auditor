@@ -76,7 +76,8 @@ export default function ResultsPage() {
   const skuCounts: Record<string, number> = {};
   for (const q of result.queries) {
     for (const issue of q.issues) {
-      if (issue.sku) skuCounts[issue.sku] = (skuCounts[issue.sku] || 0) + 1;
+      if (issue.sku && issue.sku !== "SUMMARY" && issue.sku !== "N/A")
+        skuCounts[issue.sku] = (skuCounts[issue.sku] || 0) + 1;
     }
   }
   const topSkus = Object.entries(skuCounts)
